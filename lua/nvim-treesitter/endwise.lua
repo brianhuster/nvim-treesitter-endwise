@@ -1,12 +1,68 @@
-local parsers = require('nvim-treesitter.parsers')
-local queries = require('nvim-treesitter.query')
-local ts_utils = require('nvim-treesitter.ts_utils')
+local ts = vim.treesitter
 
 local M = {}
 local indent_regex = vim.regex('\\v^\\s*\\zs\\S')
 local tracking = {}
--- compatibility shim for breaking change on nightly/0.11
-local opts = vim.fn.has("nvim-0.10") == 1 and { force = true, all = false } or true
+
+local query_opts = vim.fn.has "nvim-0.10" == 1 and { force = true } or true
+
+---@param lang string
+---@param query_name string
+---@return boolean
+local function has_query_files(lang, query_name)
+    return #ts.query.get_files(lang, query_name) > 0
+end
+
+---@param lang string
+---@return boolean
+local function has_parser(lang)
+    local has, _ = ts.get_parser(nil, lang, {
+        error = false -- This option will become default and removed in Nvim 0.12
+    })
+    return not not has
+end
+
+---@param bufnr number
+---@return string|nil
+local function get_buf_lang(bufnr)
+    local ft = vim.bo[bufnr].filetype
+    if not ft or ft == '' then
+        return nil
+    end
+    return ts.language.get_lang(ft)
+end
+
+---@param lang string
+---@return boolean
+local function is_supported(lang)
+    local seen = {}
+    local function has_nested_endwise_language(nested_lang)
+        if not has_parser(nested_lang) then
+            return false
+        end
+        -- Has query file <nested_lang>/endwise.scm
+        if has_query_files(nested_lang, "endwise") then
+            return true
+        end
+        if seen[nested_lang] then
+            return false
+        end
+        seen[nested_lang] = true
+
+        if has_query_files(nested_lang, "injections") then
+            local query = ts.query.get(nested_lang, "injections")
+            for _, capture in ipairs(query.info.captures) do
+                if capture == "language" or has_nested_endwise_language(capture) then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    return has_nested_endwise_language(lang)
+end
 
 local function tabstr()
     if vim.bo.expandtab then
@@ -16,6 +72,8 @@ local function tabstr()
     end
 end
 
+---@param range number[]
+---@return string
 local function text_for_range(range)
     local srow, scol, erow, ecol = unpack(range)
     if srow == erow then
@@ -102,46 +160,52 @@ local function add_end_node(indent_node_range, endable_node_range, end_text, shi
     vim.fn.cursor(crow, #cursor_indentation + 1)
 end
 
-local function endwise(bufnr)
-    local lang = parsers.get_buf_lang(bufnr)
+function M.endwise(bufnr)
+    local lang = get_buf_lang(bufnr)
     if not lang then
         return
     end
 
-    if not parsers.has_parser(lang) then
+    if not has_parser(lang) then
         return
     end
 
     -- Search up the first the closest non-whitespace text before the cursor
     local row, col = unpack(vim.fn.searchpos('\\S', 'nbW'))
+    if row < 1 or col < 1 then
+        return
+    end
     row = row - 1
     col = col - 1
 
-    local lang_tree = parsers.get_parser(bufnr):language_for_range({ row, col, row, col })
+    ---@type vim.treesitter.LanguageTree
+    local lang_tree = ts.get_parser(bufnr):language_for_range({ row, col, row, col })
     lang = lang_tree:lang()
     if not lang then
         return
     end
 
-    local root = ts_utils.get_root_for_position(row, col, lang_tree)
+    --- This work like `require 'nvim-treesitter.ts_utils'.get_root_for_position`
+    ---@type TSNode
+    local node = ts.get_node { bufnr = bufnr, pos = { row, col }, lang = lang, ignore_injections = false }
+    local root = node and node:root()
     if not root then
         return
     end
 
-    local query = queries.get_query(lang, 'endwise')
+    local query = ts.query.get(lang, 'endwise')
     if not query then
         return
     end
 
     local range = { root:range() }
 
-    for _, match, metadata in query:iter_matches(root, bufnr, range[1], range[3] + 1, { all = true }) do
+    for _, match, metadata in query:iter_matches(root, bufnr, range[1], range[3] + 1, query_opts) do
         local indent_node, cursor_node, endable_node
         for id, node in pairs(match) do
-            if type(node) == 'table' then
+            if vim.fn.has('nvim-0.11') == 1 then
                 node = node[#node]
             end
-
             if query.captures[id] == 'indent' then
                 indent_node = node
             elseif query.captures[id] == 'cursor' then
@@ -193,22 +257,25 @@ vim.treesitter.query.add_directive('endwise!', function(match, _, _, predicate, 
     metadata.endwise_end_node_type = predicate[4]
     metadata.endwise_shiftcount = predicate[5] or 1
     metadata.endwise_end_suffix_pattern = predicate[6] or '^.*$'
-end, opts)
+end, query_opts)
 
 vim.on_key(function(key)
     if key ~= "\r" then return end
     if vim.api.nvim_get_mode().mode ~= 'i' then return end
-    vim.schedule_wrap(function()
+    vim.schedule(function()
         local bufnr = vim.fn.bufnr()
         if not tracking[bufnr] then return end
         vim.cmd('doautocmd User PreNvimTreesitterEndwiseCR')  -- Not currently used
-        endwise(bufnr)
+        M.endwise(bufnr)
         vim.cmd('doautocmd User PostNvimTreesitterEndwiseCR') -- Used in tests to know when to exit Neovim
-    end)()
+    end)
 end, nil)
 
-function M.attach(bufnr)
-    tracking[bufnr] = true
+function M.attach(bufnr, lang)
+    lang = lang or get_buf_lang(bufnr)
+    if is_supported(lang) then
+        tracking[bufnr] = true
+    end
 end
 
 function M.detach(bufnr)

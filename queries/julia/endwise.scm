@@ -70,7 +70,7 @@
  )) @indent @endable
  (#endwise! "end"))
 
-((ERROR "function" @indent . (signature 
+((ERROR "function" @indent . (signature
    (argument_list) @cursor
    (where_expression)? @cursor
  ))

@@ -6,15 +6,45 @@
 
 https://user-images.githubusercontent.com/21000943/150613732-442589e2-6b08-4b14-b0a3-47effef0eb28.mov
 
-# Quick Start
+# Introduction
 
-No configuration is required, just install the plugin and it'll work!
+This is a simple plugin that helps to end certain structures automatically. In Ruby, this means adding end after if, do, def, etc.
 
-# About
-
-This is a simple plugin that helps to end certain structures automatically. In Ruby, this means adding end after if, do, def, etc. This even works for languages nested inside other, such as Markdown with a Lua code block!
+<!-- This even works for languages nested inside other, such as Markdown with a Lua code block! -->
 
 **Supported Languages**: *Ruby*, *Lua*, *Vimscript*, *Bash*, *Elixir*, *Fish*, *Julia*
+
+# Quick Start
+
+You can install this plugin using your favorite plugin manager or `packages` feature in Neovim.
+
+> [!NOTE]
+> This plugin does **not** support lazy loading.
+
+After installing the plugin, make sure that you install the Treesitter parsers for the languages. For example, if you use [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter):
+```vim
+:TSInstall ruby lua vim bash elixir fish julia
+```
+Also make sure that you have enabled Treesitter highlighting for the filetypes you want to use this plugin with.
+
+```lua
+vim.api.nvim_create_autocmd('FileType', {
+    pattern = {'ruby', 'lua', 'vim', 'bash', 'elixir', 'fish', 'julia'},
+    callback = function()
+        vim.treesitter.start()
+    end
+})
+```
+
+If you want to enable this plugin for some filetypes only, you can use the following code:
+```lua
+vim.g.treesitter_endwise_filetypes = {'ruby', 'lua', 'vim', 'bash', 'elixir', 'fish', 'julia'}
+```
+
+Or to disable it for some filetypes:
+```lua
+vim.g.treesitter_endwise_filetypes_disable = {'fish'}
+```
 
 # Additional Language Support
 

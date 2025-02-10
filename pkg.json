@@ -1,0 +1,7 @@
+{
+    "name": "nvim-treesitter-endwise",
+    "description": "A treesitter-based and `tpope/vim-endwise`-inspired plugin for Neovim",
+    "engines": {
+        "nvim": "^0.9.0"
+    }
+}
